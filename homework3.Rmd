@@ -1,0 +1,339 @@
+---
+title: "homework3"
+author: "Kexin Sun"
+date: "10/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+knitr::opts_chunk$set(
+	fig.width = 6, 
+  fig.asp = .6,
+  out.width = "90%"
+)
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+
+### Problem 1
+
+```{r}
+data("instacart")
+```
+
+This dataset contains `r nrow(instacart)` rows and `r nrow(instacart)` columns. 
+
+Observations are the level of items in orders by user. There are user / order variables -- user ID, order ID, order day, and order hour. There are also item variables -- name, aisle, department, and some numeric codes. 
+
+How many aisles, and which are most items from?
+
+```{r}
+instacart %>% 
+	count(aisle) %>% 
+	arrange(desc(n))
+```
+
+
+Let's make a plot
+
+```{r}
+instacart %>% 
+	count(aisle) %>% 
+	filter(n > 10000) %>% 
+	mutate(
+		aisle = factor(aisle),
+		aisle = fct_reorder(aisle, n)
+	) %>% 
+	ggplot(aes(x = aisle, y = n)) + 
+	geom_point() + 
+	theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+
+Let's make a table!!
+
+```{r}
+instacart %>% 
+	filter(aisle %in% c("baking ingredients", "dog food care", "packaged vegetables fruits")) %>% 
+	group_by(aisle) %>% 
+	count(product_name) %>% 
+	mutate(rank = min_rank(desc(n))) %>% 
+	filter(rank < 4) %>% 
+	arrange(aisle, rank) %>% 
+	knitr::kable()
+```
+
+
+Apples vs ice cream..
+
+```{r}
+instacart %>% 
+	filter(product_name %in% c("Pink Lady Apples", "Coffee Ice Cream")) %>% 
+	group_by(product_name, order_dow) %>% 
+	summarize(mean_hour = mean(order_hour_of_day)) %>% 
+	pivot_wider(
+		names_from = order_dow,
+		values_from = mean_hour
+	)
+```
+
+
+
+
+## Problem 2
+
+
+
+```{r}
+accel_df = 
+  read_csv ("./data/accel_data.csv") %>%
+  janitor::clean_names() %>%
+  pivot_longer(
+    activity_1:activity_1440, 
+    names_prefix = "activity_",
+    names_to = "minute",
+    values_to = "count"
+    )%>%
+  mutate(
+    day = factor(day),
+    count = as.numeric(count),
+    minute = as.numeric(minute),
+    day_id = as.numeric(day_id),
+    weekday_or_weekend = case_when(
+      day %in% c("Saturday", "Sunday") ~ "Weekend",
+      day %in% c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday") ~ "Weekday"))
+
+   
+```
+There are `r ncol(accel_df)` variables and `r nrow(accel_df)` observations in this data set, and variables are "`r names(accel_df)`". 
+
+
+
+
+
+This is a 7*5 table. There is no obvious trend, but we can noticed two particular low total activity time on the Saturday of week 4 and week 5.
+
+```{r}
+accel_df2=
+  accel_df %>% 
+  group_by(week, day) %>% 
+  summarize(
+    total_activity_count = sum(count)
+  ) %>% 
+  pivot_wider(
+    names_from = day,
+    values_from = total_activity_count
+  ) %>% 
+  relocate(week, Monday, Tuesday, Wednesday,Thursday, Friday, Saturday, Sunday) %>%
+  knitr::kable(digits = 2)
+  
+
+```
+
+
+
+
+
+```{r}
+accel_df = 
+  accel_df %>%
+  group_by(week) %>%
+  arrange(day, .by_group = TRUE) %>%
+  group_by(day_id) %>%
+  mutate(min_week = 1,
+         hour = cumsum(min_week) %/% 60) %>%
+  ungroup(day_id) %>%
+  select(-min_week)
+```
+
+Generally, people are most active during 8am to 10am and 3pm to 5pm, maybe this is because these are the time that people go to and go off work. After 10 pm, people's total activities start to decrease cause it is time to rest.
+
+```{r}
+activity_plot =
+  accel_df %>%
+  group_by(day_id, day, hour) %>%
+  summarize(activity_counts_hr = sum(count, na.rm = TRUE)) %>%
+  ggplot(aes(x = hour, y = activity_counts_hr, color = day, group = day_id)) +
+  geom_line(alpha = 0.2, size = 0.4) +
+  stat_smooth(se = FALSE, geom = "line") +
+  scale_x_continuous(limits = c(0,24), breaks = seq(0,24,2)) +
+  scale_y_continuous(limits = c(-10000, 60000), breaks = seq(-10000, 60000, 10000)) +
+  labs(
+    title = "Hourly activity counts in 35 days",
+    x = "Hour",
+    y = "Total activity counts"
+  )
+
+```
+
+
+## Problem 3
+
+```{r}
+library(p8105.datasets)
+data("ny_noaa")
+```
+
+
+
+```{r}
+library(readxl)
+library(dplyr)
+library(rnoaa)
+library(ggridges)
+library(patchwork)
+```
+
+
+```{r}
+ny_noaa_df =
+  ny_noaa %>% 
+  mutate_at(vars(date), as.factor) %>%
+  separate(date, into = c("year", "month", "day")) %>% 
+  mutate_at(vars(prcp, tmax, tmin, snow), as.numeric) %>%
+  mutate(
+      prcp = prcp/10,
+      tmax = tmax/10,
+      tmin = tmin/10,
+      snow = case_when(
+      snow <0 ~ 0,
+      snow >= 0 ~ snow)
+  ) %>% 
+  mutate_at(vars(year, month, day), as.factor)
+skimr::skim_without_charts(ny_noaa_df)
+```
+
+There are `r ncol(ny_noaa_df)` variables and `r nrow(ny_noaa_df)` observations in this data set, and variables are "`r names(ny_noaa_df)`". 
+
+
+The most commonly observed value for snowfall is 0. This is because most days through 1981 to 2020 did not snow.
+
+```{r}
+ny_noaa_df %>%
+  count(snow) %>%
+  arrange(desc(n))
+```
+
+
+```{r}
+Figure1 =
+  ny_noaa_df %>% 
+  filter(month == "01") %>% 
+  group_by(id,year,month) %>% 
+  summarise(tmax_mean = mean(tmax,na.rm = T)) %>% 
+  drop_na() %>% 
+  ggplot(aes(x = year, y = tmax_mean, color = id)) +
+  geom_point(alpha = 0.3, size = 0.2) +
+  geom_path(aes(group = id), alpha = 0.3, size = 0.2) +
+  theme(
+    legend.position = 'none',
+    plot.title = element_text(lineheight = 3, face = "bold", color = "black", size = 8),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8)
+    ) +
+  labs(
+    x = "Year",
+    y = "Temperature(C)",
+    title = "Max temperature in January"
+    )
+    
+ Figure2 =
+  ny_noaa_df %>% 
+  filter(month == "07") %>% 
+  group_by(id,year,month) %>% 
+  summarise(tmax_mean = mean(tmax,na.rm = T)) %>% 
+  drop_na() %>% 
+  ggplot(aes(x = year, y = tmax_mean, color = id)) +
+  geom_point(alpha = 0.3, size = 0.2) +
+  geom_path(aes(group = id), alpha = 0.3, size = 0.2) +
+  theme(
+    legend.position = 'none',
+    plot.title = element_text(lineheight = 3, face = "bold", color = "black", size = 8),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8)
+    ) +
+  labs(
+    x = "Year",
+    y = "Temperature(C)",
+    title = "Max temperature in July"
+    )
+ 
+ Figure1/Figure2
+```
+
+
+
+There are eight outliers in January:
+```{r} 
+ny_noaa_df %>% 
+  filter(month == "01") %>% 
+  group_by(id,year,month) %>% 
+  summarise(tmax_mean = mean(tmax,na.rm = T)) %>% 
+  drop_na() %>% 
+  filter(tmax_mean > 10 | tmax_mean < -10) %>% 
+  knitr::kable(digits = 1)
+```
+
+There are seven outliers in July:
+
+```{r} 
+ny_noaa_df %>% 
+  filter(month == "07") %>% 
+  group_by(id,year,month) %>% 
+  summarise(tmax_mean = mean(tmax,na.rm = T)) %>% 
+  drop_na() %>% 
+  filter(tmax_mean > 33 | tmax_mean < 20) %>% 
+  knitr::kable(digits = 1)
+```
+
+
+Grouped Boxplot is used to compare the max and min of temperature in the whole dataset. 
+
+```{r}
+temperature =
+  ny_noaa_df %>% 
+  drop_na(tmax, tmin) %>% 
+  pivot_longer(
+    tmax:tmin,
+    names_to = "tmax_tmin",
+    values_to = "temp"
+  ) %>% 
+  ggplot(aes(x = year, y = temp)) +
+  geom_boxplot(aes(color = tmax_tmin), alpha = 0.5, outlier.size = 0.2) +
+  theme(
+    plot.title = element_text(lineheight = 3, face = "bold", color = "black", size = 8),
+    legend.position = 'right',
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8)
+    ) +
+  labs(
+    x = "Year",
+    y = "Temperature",
+    title = "TMAX vs TMIN for years"
+    )
+
+snowfall = 
+  ny_noaa_df %>% 
+  filter(snow > 0 & snow < 100) %>% 
+  ggplot(aes(x = year, y = snow)) + 
+  geom_violin(color = "black" , fill = "red") +
+  theme(
+    plot.title = element_text(lineheight = 3, face = "bold", color = "black", size = 8),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 8)) +
+  labs(
+    x = "Year",
+    y = "Snowfall",
+    title = "The Snowfall Values Separately by Year"
+    )
+
+temperature / snowfall
+```
